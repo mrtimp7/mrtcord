@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discord Benzeri Uygulama</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #6B7280;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background-color: #374151;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans antialiased flex flex-col h-screen">
+
+    <div class="flex flex-grow w-full h-full max-w-7xl mx-auto rounded-2xl shadow-lg overflow-hidden my-4 bg-gray-800">
+        
+        <!-- Sol Kenar Çubuğu -->
+        <div class="w-1/4 bg-gray-700 border-r border-gray-600 flex flex-col">
+            <!-- Kullanıcı Kimliği -->
+            <div class="p-4 border-b border-gray-600">
+                <p class="text-sm font-bold">Senin Kimliğin:</p>
+                <p id="userIdDisplay" class="font-mono text-xs break-all mt-1">Yükleniyor...</p>
+            </div>
+            
+            <!-- Arkadaş Ekleme Formu -->
+            <form id="addFriendForm" class="p-4 border-b border-gray-600">
+                <p class="text-sm font-bold mb-2">Arkadaş Ekle</p>
+                <input
+                    id="friendIdInput"
+                    type="text"
+                    placeholder="Arkadaşın kimliğini gir"
+                    class="w-full p-2 text-sm bg-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <button
+                    type="submit"
+                    id="addFriendButton"
+                    class="mt-2 w-full p-2 text-sm font-bold bg-blue-600 hover:bg-blue-500 rounded-lg transition-all duration-200"
+                    disabled
+                >
+                    Ekle
+                </button>
+            </form>
+
+            <!-- Arkadaş Listesi -->
+            <div id="friendsList" class="flex-grow p-2 overflow-y-auto custom-scrollbar">
+                <p class="text-sm font-bold mb-2">Arkadaşların</p>
+                <p id="noFriendsMessage" class="text-xs text-gray-400">Henüz arkadaşın yok.</p>
+            </div>
+        </div>
+
+        <!-- Ana Sohbet Alanı -->
+        <div class="flex-grow flex flex-col">
+            <!-- Sohbet Başlığı -->
+            <div class="p-4 bg-gray-700 text-center font-bold text-lg border-b border-gray-600">
+                <span id="chatTitle">Bir arkadaş seç...</span>
+            </div>
+
+            <!-- Mesaj Görüntüleme Alanı -->
+            <div id="messagesContainer" class="flex-grow p-4 overflow-y-auto space-y-4 custom-scrollbar">
+                <div id="loadingMessage" class="flex items-center justify-center h-full text-gray-400">
+                    <p>Bağlanılıyor...</p>
+                </div>
+            </div>
+
+            <!-- Mesaj Giriş Formu -->
+            <form id="sendMessageForm" class="p-4 bg-gray-700 border-t border-gray-600 flex items-center">
+                <input
+                    id="messageInput"
+                    type="text"
+                    placeholder="Bir mesaj yaz..."
+                    class="flex-grow p-3 bg-gray-600 border border-gray-500 text-white rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-200"
+                    disabled
+                />
+                <button
+                    type="submit"
+                    id="sendMessageButton"
+                    class="ml-2 p-3 rounded-full font-bold shadow-lg transition-all duration-200 bg-blue-800 cursor-not-allowed"
+                    disabled
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l.608-.246c.159-.064.298-.15.421-.246l5.86-4.526a1 1 0 011.262 0l5.86 4.526c.123.096.262.182.42.246l.61-.246a1 1 0 001.169-1.409l-7-14z" />
+                    </svg>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Firebase SDK's -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, addDoc, onSnapshot, collection, query, serverTimestamp, setDoc, doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Firebase yapılandırması ve global değişkenler
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        // UI elementleri
+        const userIdDisplay = document.getElementById('userIdDisplay');
+        const addFriendForm = document.getElementById('addFriendForm');
+        const friendIdInput = document.getElementById('friendIdInput');
+        const addFriendButton = document.getElementById('addFriendButton');
+        const friendsList = document.getElementById('friendsList');
+        const noFriendsMessage = document.getElementById('noFriendsMessage');
+        const chatTitle = document.getElementById('chatTitle');
+        const messagesContainer = document.getElementById('messagesContainer');
+        const sendMessageForm = document.getElementById('sendMessageForm');
+        const messageInput = document.getElementById('messageInput');
+        const sendMessageButton = document.getElementById('sendMessageButton');
+        const loadingMessage = document.getElementById('loadingMessage');
+
+        // Uygulama durumu
+        let db;
+        let auth;
+        let user = null;
+        let userId = null;
+        let selectedFriend = null;
+        let friends = [];
+        let messages = [];
+        let isAuthReady = false;
+        let unsubscribeFriends;
+        let unsubscribeMessages;
+
+        window.onload = function() {
+            initializeFirebase();
+        }
+
+        async function initializeFirebase() {
+            try {
+                const app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                loadingMessage.innerText = 'Kullanıcı doğrulanıyor...';
+                
+                onAuthStateChanged(auth, async (currentUser) => {
+                    if (currentUser) {
+                        user = currentUser;
+                        userId = currentUser.uid;
+                        isAuthReady = true;
+
+                        userIdDisplay.innerText = userId;
+                        addFriendButton.disabled = false;
+                        addFriendButton.classList.replace('bg-blue-800', 'bg-blue-600');
+                        addFriendButton.classList.replace('cursor-not-allowed', 'hover:bg-blue-500');
+
+                        console.log("Kullanıcı doğrulandı:", userId);
+
+                        const userRef = doc(db, `artifacts/${appId}/public/data/users/${userId}`);
+                        await setDoc(userRef, { displayName: `Kullanıcı_${userId.substring(0, 5)}` }, { merge: true });
+                        
+                        setupFriendsListener();
+                    } else {
+                        user = null;
+                        userId = null;
+                        isAuthReady = true;
+                        console.log("Kullanıcı bulunamadı.");
+                        
+                        // Anonim giriş yap
+                        if (initialAuthToken) {
+                            await signInWithCustomToken(auth, initialAuthToken);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    }
+                    loadingMessage.style.display = 'none';
+                });
+            } catch (error) {
+                console.error("Firebase başlatma hatası:", error);
+                loadingMessage.innerText = 'Bağlantı hatası.';
+            }
+        }
+
+        function setupFriendsListener() {
+            if (!db || !user) return;
+            if (unsubscribeFriends) unsubscribeFriends(); // Önceki dinleyiciyi temizle
+
+            const friendsCollectionRef = collection(db, `artifacts/${appId}/users/${user.uid}/friends`);
+            const q = query(friendsCollectionRef);
+
+            unsubscribeFriends = onSnapshot(q, (querySnapshot) => {
+                friends = [];
+                querySnapshot.forEach((doc) => {
+                    friends.push({ id: doc.id, ...doc.data() });
+                });
+                renderFriendsList();
+            }, (error) => {
+                console.error("Arkadaş listesi dinleme hatası:", error);
+            });
+        }
+
+        function renderFriendsList() {
+            friendsList.innerHTML = '';
+            const header = document.createElement('p');
+            header.className = 'text-sm font-bold mb-2';
+            header.innerText = 'Arkadaşların';
+            friendsList.appendChild(header);
+
+            if (friends.length > 0) {
+                noFriendsMessage.style.display = 'none';
+                friends.forEach(friend => {
+                    const friendItem = document.createElement('div');
+                    friendItem.id = `friend-${friend.id}`;
+                    friendItem.className = 'p-3 rounded-lg cursor-pointer transition-colors duration-200 hover:bg-gray-600';
+                    if (selectedFriend && selectedFriend.id === friend.id) {
+                        friendItem.classList.add('bg-blue-600');
+                    }
+                    friendItem.innerText = `Kullanıcı_${friend.id.substring(0, 5)}`;
+                    friendItem.addEventListener('click', () => {
+                        selectedFriend = friend;
+                        chatTitle.innerText = `Sohbet: Kullanıcı_${friend.id.substring(0, 5)}`;
+                        messageInput.disabled = false;
+                        sendMessageButton.disabled = false;
+                        sendMessageButton.classList.replace('bg-blue-800', 'bg-blue-600');
+                        sendMessageButton.classList.replace('cursor-not-allowed', 'hover:bg-blue-500');
+                        renderFriendsList(); // Seçili arkadaşı vurgulamak için listeyi yeniden çiz
+                        setupMessagesListener();
+                    });
+                    friendsList.appendChild(friendItem);
+                });
+            } else {
+                noFriendsMessage.style.display = 'block';
+                friendsList.appendChild(noFriendsMessage);
+            }
+        }
+
+        function setupMessagesListener() {
+            if (!db || !user || !selectedFriend) return;
+            if (unsubscribeMessages) unsubscribeMessages();
+
+            const chatPartnerId = selectedFriend.id;
+            const sortedUserIds = [user.uid, chatPartnerId].sort();
+            const chatId = `${sortedUserIds[0]}_${sortedUserIds[1]}`;
+            const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/chats/${chatId}/messages`);
+            const q = query(messagesCollectionRef);
+
+            unsubscribeMessages = onSnapshot(q, (querySnapshot) => {
+                messages = [];
+                querySnapshot.forEach((doc) => {
+                    messages.push({ id: doc.id, ...doc.data() });
+                });
+
+                messages.sort((a, b) => a.createdAt?.toMillis() - b.createdAt?.toMillis());
+                renderMessages();
+            }, (error) => {
+                console.error("Mesaj dinleme hatası:", error);
+            });
+        }
+
+        function renderMessages() {
+            messagesContainer.innerHTML = '';
+            if (messages.length > 0) {
+                messages.forEach(msg => {
+                    const messageItem = document.createElement('div');
+                    messageItem.className = `flex ${msg.senderId === userId ? 'justify-end' : 'justify-start'}`;
+                    const messageBubble = document.createElement('div');
+                    messageBubble.className = `max-w-[70%] p-3 rounded-xl shadow-md ${msg.senderId === userId ? 'bg-blue-600 text-white rounded-br-none' : 'bg-gray-600 text-gray-100 rounded-bl-none'}`;
+                    
+                    const senderName = document.createElement('p');
+                    senderName.className = 'font-bold text-xs mb-1 opacity-70';
+                    senderName.innerText = msg.senderId === userId ? 'Sen' : `Kullanıcı_${selectedFriend.id.substring(0, 5)}`;
+                    
+                    const messageText = document.createElement('p');
+                    messageText.className = 'text-sm break-words';
+                    messageText.innerText = msg.text;
+
+                    messageBubble.appendChild(senderName);
+                    messageBubble.appendChild(messageText);
+                    messageItem.appendChild(messageBubble);
+                    messagesContainer.appendChild(messageItem);
+                });
+            } else {
+                const noMessagesMessage = document.createElement('div');
+                noMessagesMessage.className = 'flex items-center justify-center h-full text-gray-400';
+                noMessagesMessage.innerHTML = '<p>Henüz mesaj yok. İlk mesajı sen gönder!</p>';
+                messagesContainer.appendChild(noMessagesMessage);
+            }
+            messagesContainer.scrollTop = messagesContainer.scrollHeight; // Otomatik kaydırma
+        }
+
+        addFriendForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const friendIdToAdd = friendIdInput.value.trim();
+            if (!friendIdToAdd || !user || friendIdToAdd === user.uid || !isAuthReady) return;
+
+            try {
+                const friendRef = doc(db, `artifacts/${appId}/public/data/users/${friendIdToAdd}`);
+                const friendDoc = await getDoc(friendRef);
+
+                if (friendDoc.exists()) {
+                    const myFriendRef = doc(db, `artifacts/${appId}/users/${user.uid}/friends/${friendIdToAdd}`);
+                    await setDoc(myFriendRef, { addedAt: serverTimestamp() });
+
+                    const theirFriendRef = doc(db, `artifacts/${appId}/users/${friendIdToAdd}/friends/${user.uid}`);
+                    await setDoc(theirFriendRef, { addedAt: serverTimestamp() });
+
+                    friendIdInput.value = '';
+                } else {
+                    console.error("Kullanıcı bulunamadı.");
+                }
+            } catch (error) {
+                console.error("Arkadaş ekleme hatası:", error);
+            }
+        });
+
+        sendMessageForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const newMessageText = messageInput.value.trim();
+            if (!newMessageText || !user || !selectedFriend || !isAuthReady) return;
+
+            sendMessageButton.disabled = true;
+            sendMessageButton.classList.replace('bg-blue-600', 'bg-blue-800');
+            sendMessageButton.classList.replace('hover:bg-blue-500', 'cursor-not-allowed');
+
+            try {
+                const chatPartnerId = selectedFriend.id;
+                const sortedUserIds = [user.uid, chatPartnerId].sort();
+                const chatId = `${sortedUserIds[0]}_${sortedUserIds[1]}`;
+                const messagesCollectionRef = collection(db, `artifacts/${appId}/public/data/chats/${chatId}/messages`);
+
+                await addDoc(messagesCollectionRef, {
+                    text: newMessageText,
+                    senderId: userId,
+                    createdAt: serverTimestamp()
+                });
+                messageInput.value = '';
+            } catch (error) {
+                console.error("Mesaj gönderme hatası:", error);
+            } finally {
+                sendMessageButton.disabled = false;
+                sendMessageButton.classList.replace('bg-blue-800', 'bg-blue-600');
+                sendMessageButton.classList.replace('cursor-not-allowed', 'hover:bg-blue-500');
+            }
+        });
+    </script>
+</body>
+</html>
